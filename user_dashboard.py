@@ -1,69 +1,10 @@
 import streamlit as st
-import json
-import re
-import os
-import requests
+import pandas as pd
+import uuid
 from db2 import create_media_post, read_media_posts_with_id, update_media_title, delete_media_post
-
-def download_via_api(link_url, download_type, quality=None):
-    """
-    Menggunakan API pihak ketiga untuk mengunduh konten
-    """
-    try:
-        # API gratis untuk download YouTube (contoh)
-        if "youtube.com" in link_url or "youtu.be" in link_url:
-            # Gunakan API YouTube downloader
-            api_url = f"https://youtube-downloader8.p.rapidapi.com/"
-            headers = {
-                         'x-rapidapi-key': "b7ef26d5bamshfae6282622bcdedp1915cbjsn873e67b6c660",
-                         'x-rapidapi-host': "all-video-downloader3.p.rapidapi.com",
-                    }
-
-            params = {
-                "url": link_url,
-                "format": "mp4" if download_type == "Video" else "mp3"
-            }
-            
-            response = requests.get(api_url, headers=headers, params=params, stream=True)
-            return response
-            
-        # Untuk platform lain, bisa ditambahkan API yang sesuai
-        else:
-            st.error("Platform ini belum didukung untuk download langsung")
-            return None
-            
-    except Exception as e:
-        st.error(f"Error accessing API: {e}")
-        return None
-
-def get_direct_download_link(link_url):
-    """
-    Mendapatkan direct download link menggunakan API
-    """
-    try:
-        # Service untuk mendapatkan direct link
-        api_url = "https://social-media-video-downloader.p.rapidapi.com/smvd/get/all"
-        headers = {
-            "X-RapidAPI-Key": "your-api-key-here",
-            "X-RapidAPI-Host": "social-media-video-downloader.p.rapidapi.com"
-        }
-        
-        params = {"url": link_url}
-        response = requests.get(api_url, headers=headers, params=params)
-        
-        if response.status_code == 200:
-            data = response.json()
-            return data
-        return None
-        
-    except Exception as e:
-        st.error(f"Error getting direct link: {e}")
-        return None
+from supabase import create_client, Client
 
 def show_user_dashboard():
-    """
-    Menampilkan dashboard pengguna untuk mengunggah dan mengunduh tautan media sosial.
-    """
     st.title("Dashboard Pengguna")
 
     if not st.session_state.get("logged_in", False) or st.session_state.get("role") != "user":
@@ -71,132 +12,68 @@ def show_user_dashboard():
         st.session_state.logged_in = False
         st.rerun()
 
+    supabase_url = "https://wxbswpqczzufiqslqist.supabase.co"
+    supabase_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind4YnN3cHFjenp1Zmlxc2xxaXN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyODQ3NDcsImV4cCI6MjA3Mzg2MDc0N30.0c32gc-nSqdHgLtgAXKpuog3yPvx0UWLDKI-JgkSggM"
+    
+    supabase: Client = create_client(supabase_url, supabase_key)
+    bucket_name = "user-media"
+
     st.write(f"Selamat datang, **{st.session_state.username}**!")
     
     st.sidebar.subheader("Menu")
-    menu = st.sidebar.radio("Pilih Opsi", ["Unggah Tautan", "Lihat & Kelola Unggahan"])
+    menu = st.sidebar.radio("Pilih Opsi", ["Unggah Media", "Lihat & Kelola Unggahan"])
 
-    if menu == "Unggah Tautan":
-        st.subheader("Unggah Tautan Media Sosial")
-        
-        link_url = st.text_input("Tempel tautan video (YouTube, TikTok, Instagram, dll.)")
+    if menu == "Unggah Media":
+        st.subheader("Unggah Foto atau Video")
+        with st.form("upload_form", clear_on_submit=True):
+            file = st.file_uploader("Pilih file (JPG, PNG, MP4, dll.)", type=["jpg", "jpeg", "png", "mp4", "mov"], help="Ukuran maksimal 200MB.")
+            title = st.text_input("Judul Unggahan")
+            submitted = st.form_submit_button("Unggah")
 
-        if link_url:
-            st.info("🔍 Menganalisis tautan...")
+            if submitted and file:
+                try:
+                    # ================== Debug info ==================
+                    file_bytes = file.getvalue()
+                    file_extension = file.name.split('.')[-1]
+                    file_path = f"{uuid.uuid4()}.{file_extension}"
+                    st.write(f"Debug: File size: {len(file_bytes)} bytes")
+                    st.write(f"Debug: File path: {file_path}")
+                    # ===============================================
+
+                    # Upload file ke Supabase Storage
+                    result = supabase.storage.from_(bucket_name).upload(file=file_bytes, path=file_path)
+                    st.write(f"Debug: Upload result: {result}")  # debug upload
+
+                    # Dapatkan URL publik
+                    media_url = supabase.storage.from_(bucket_name).get_public_url(path=file_path)
+                    st.write(f"Debug: Media URL: {media_url}")  # debug URL
+
+                    # Simpan metadata ke database
+                    create_media_post(st.session_state.username, title, media_url)
+                    st.success("File berhasil diunggah!")
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"Gagal mengunggah file: {e}")
+                    st.write(f"Debug: Error type: {type(e)}")
             
-            # Coba dapatkan direct download links
-            video_data = get_direct_download_link(link_url)
-            
-            if video_data:
-                st.success("✅ Tautan berhasil dianalisis!")
-                
-                # Tampilkan preview jika available
-                if 'thumbnail' in video_data:
-                    st.image(video_data['thumbnail'], caption="Thumbnail Video", width=300)
-                
-            else:
-                st.warning("⚠️ Tidak bisa menganalisis tautan secara otomatis")
-
-        if link_url:
-            with st.form("upload_link_form", clear_on_submit=True):
-                title = st.text_input("Judul Unggahan")
-                
-                download_type = st.radio("Pilih tipe unduhan:", ("Video", "Audio"))
-                
-                quality = st.selectbox("Kualitas:", 
-                                    ["720p", "480p", "360p", "240p"] if download_type == "Video" else ["Terbaik"])
-                
-                submitted = st.form_submit_button("Unggah & Unduh")
-
-                if submitted and link_url:
-                    try:
-                        if not re.match(r"https?://", link_url):
-                            st.error("Tautan tidak valid. Harap masukkan tautan yang dimulai dengan http:// atau https://")
-                            st.stop()
-
-                        create_media_post(st.session_state.username, title, link_url)
-                        st.success("Tautan berhasil diunggah!")
-
-                        st.info("⏳ Mempersiapkan unduhan...")
-                        
-                        # Method 1: Direct download link
-                        st.info("🔄 Mencoba Method 1: Direct download...")
-                        direct_data = get_direct_download_link(link_url)
-                        
-                        if direct_data and 'links' in direct_data:
-                            # Cari link download yang sesuai
-                            for link_info in direct_data['links']:
-                                if (download_type == "Video" and link_info.get('quality') == quality) or \
-                                   (download_type == "Audio" and 'audio' in link_info.get('format', '').lower()):
-                                    
-                                    download_url = link_info['url']
-                                    st.success(f"✅ Direct link ditemukan!")
-                                    
-                                    # Download langsung ke browser user
-                                    response = requests.get(download_url, stream=True)
-                                    if response.status_code == 200:
-                                        file_extension = ".mp4" if download_type == "Video" else ".mp3"
-                                        filename = f"{title}{file_extension}"
-                                        
-                                        st.download_button(
-                                            label="📥 Download Sekarang",
-                                            data=response.content,
-                                            file_name=filename,
-                                            mime="video/mp4" if download_type == "Video" else "audio/mp3"
-                                        )
-                                        break
-                            else:
-                                st.warning("❌ Tidak ada direct link yang sesuai")
-                                
-                                # Method 2: Alternative download options
-                                st.info("💡 Alternatif download:")
-                                st.markdown(f"""
-                                **Opsi 1:** [Download dengan SaveFrom.net](https://en.savefrom.net/16/?url={link_url})
-                                **Opsi 2:** [Download dengan Y2mate](https://www.y2mate.com/youtube/{link_url})
-                                **Opsi 3:** [Download dengan SSYouTube](https://ssyoutube.com/en{link_url})
-                                """)
-                                
-                        else:
-                            st.warning("❌ Tidak bisa mendapatkan direct link")
-                            
-                            # Tampilkan alternatif
-                            st.info("💡 **Alternatif Download:**")
-                            st.markdown(f"""
-                            Silakan gunakan salah satu layanan download berikut:
-                            - [SaveFrom.net](https://en.savefrom.net/16/?url={link_url})
-                            - [Y2mate](https://www.y2mate.com/youtube/{link_url})
-                            - [SSYouTube](https://ssyoutube.com/en{link_url})
-                            """)
-
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-                        st.info("""
-                        **Tips:** 
-                        - Pastikan link valid dan tidak private
-                        - Coba lagi dalam beberapa menit
-                        - Gunakan layanan download alternatif di atas
-                        """)
-                
-                elif submitted and not link_url:
-                    st.error("Silakan masukkan tautan untuk diunggah.")
+            elif submitted and not file:
+                st.error("Silakan pilih file untuk diunggah.")
     
     elif menu == "Lihat & Kelola Unggahan":
-        st.subheader("Daftar Tautan Saya")
+        st.subheader("Unggahan Saya")
         user_media = read_media_posts_with_id(st.session_state.username)
         
         if user_media:
             for media in user_media:
                 media_id, title, url, timestamp = media
-                
-                with st.expander(f"Tautan: {title} ({timestamp.strftime('%Y-%m-%d %H:%M')})"):
-                    st.write(f"Tautan asli: [{url}]({url})")
-                    
-                    # Tombol download cepat
-                    st.markdown(f"""
-                    **Download Cepat:**
-                    - [SaveFrom.net](https://en.savefrom.net/16/?url={url})
-                    - [Y2mate](https://www.y2mate.com/youtube/{url})
-                    """)
+                with st.expander(f"Unggahan: {title} ({timestamp.strftime('%Y-%m-%d %H:%M')})"):
+                    if any(ext in url for ext in ['.jpg', '.jpeg', '.png']):
+                        st.image(url, caption=title)
+                    elif any(ext in url for ext in ['.mp4', '.mov']):
+                        st.video(url, format="video/mp4")
+                    else:
+                        st.write(f"Tipe file tidak didukung: {url}")
                     
                     with st.form(f"edit_form_{media_id}", clear_on_submit=False):
                         new_title = st.text_input("Judul baru", value=title)
@@ -208,23 +85,16 @@ def show_user_dashboard():
                                 st.rerun()
                         with col2:
                             if st.form_submit_button("Hapus"):
+                                file_path_to_delete = url.split(f"/{bucket_name}/")[-1]
+                                supabase.storage.from_(bucket_name).remove([file_path_to_delete])
                                 delete_media_post(media_id)
                                 st.success("Unggahan berhasil dihapus!")
                                 st.rerun()
-                    
                 st.markdown("---")
         else:
-            st.info("Anda belum mengunggah tautan apa pun.")
+            st.info("Anda belum mengunggah media apa pun.")
 
-    # Informasi penting
     st.markdown("---")
-    st.info("""
-    **Catatan Penting:**
-    - Download dilakukan melalui layanan pihak ketiga
-    - Pastikan Anda memiliki izin untuk mendownload konten
-    - Beberapa video mungkin tidak bisa didownload karena pembatasan
-    """)
-    
     if st.button("🚪 Keluar"):
         st.session_state.logged_in = False
         st.rerun()
