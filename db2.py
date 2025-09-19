@@ -70,14 +70,15 @@ def get_user_role(username):
     return None
 
 # -------------------------
-# CRUD Media Posts
+# CRUD Media Posts - FIXED COLUMN NAMES
 # -------------------------
 def create_media_post(username, title, media_url):
     conn = get_connection()
     if conn:
         with conn.cursor() as cursor:
+            # FIXED: Changed 'username' to 'user_id' to match new table structure
             cursor.execute(
-                "INSERT INTO media_posts (username, title, media_url) VALUES (%s, %s, %s)",
+                "INSERT INTO media_posts (user_id, title, media_url) VALUES (%s, %s, %s)",
                 (username, title, media_url)
             )
         conn.commit()
@@ -87,7 +88,8 @@ def read_media_posts(username):
     conn = get_connection()
     if conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT id, title, media_url, created_at FROM media_posts WHERE username=%s ORDER BY created_at DESC", (username,))
+            # FIXED: Changed 'username' to 'user_id' to match new table structure
+            cursor.execute("SELECT id, title, media_url, created_at FROM media_posts WHERE user_id=%s ORDER BY created_at DESC", (username,))
             result = cursor.fetchall()
         conn.close()
         return result
@@ -113,7 +115,8 @@ def read_media_posts_with_id(username):
     conn = get_connection()
     if conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT id, title, media_url, created_at FROM media_posts WHERE username=%s ORDER BY created_at DESC", (username,))
+            # FIXED: Changed 'username' to 'user_id' to match new table structure
+            cursor.execute("SELECT id, title, media_url, created_at FROM media_posts WHERE user_id=%s ORDER BY created_at DESC", (username,))
             result = cursor.fetchall()
         conn.close()
         return result
