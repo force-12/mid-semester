@@ -3,7 +3,134 @@ import subprocess
 import json
 import re
 import os
+import random
+import time
 from db2 import create_media_post, read_media_posts_with_id, update_media_title, delete_media_post
+
+def download_with_fallback(link_url, selected_format_id, output_path, download_type):
+    """
+    Download dengan berbagai fallback method untuk mengatasi 403 error
+    """
+    # User agents untuk rotate
+    user_agents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0'
+    ]
+    
+    # Method 1: Standard dengan user-agent rotation
+    user_agent = random.choice(user_agents)
+    
+    if download_type == "Video":
+        command = [
+            "yt-dlp", 
+            "-f", f"{selected_format_id}+bestaudio",
+            "--user-agent", user_agent,
+            "--referer", "https://www.youtube.com/",
+            "--add-header", "Accept-Language:en-US,en;q=0.9",
+            "--no-check-certificate",
+            "-o", f"{output_path}.%(ext)s", 
+            link_url
+        ]
+    else:
+        command = [
+            "yt-dlp", 
+            "-f", selected_format_id,
+            "--user-agent", user_agent, 
+            "--referer", "https://www.youtube.com/",
+            "--add-header", "Accept-Language:en-US,en;q=0.9",
+            "--no-check-certificate",
+            "-o", f"{output_path}.%(ext)s", 
+            link_url
+        ]
+    
+    st.info("🔄 Mencoba method 1: Standard download dengan headers...")
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = process.communicate()
+    
+    if process.returncode == 0:
+        return True, stdout.decode("utf-8"), ""
+    
+    # Method 2: Dengan delay dan cookies
+    st.info("🔄 Method 1 gagal, mencoba method 2: Dengan delay dan cookies...")
+    time.sleep(2)  # Delay 2 detik
+    
+    if download_type == "Video":
+        command = [
+            "yt-dlp", 
+            "-f", f"{selected_format_id}+bestaudio",
+            "--user-agent", random.choice(user_agents),
+            "--sleep-interval", "1",
+            "--max-sleep-interval", "3", 
+            "--no-check-certificate",
+            "--ignore-errors",
+            "-o", f"{output_path}.%(ext)s", 
+            link_url
+        ]
+    else:
+        command = [
+            "yt-dlp", 
+            "-f", selected_format_id,
+            "--user-agent", random.choice(user_agents),
+            "--sleep-interval", "1", 
+            "--max-sleep-interval", "3",
+            "--no-check-certificate",
+            "--ignore-errors",
+            "-o", f"{output_path}.%(ext)s", 
+            link_url
+        ]
+    
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = process.communicate()
+    
+    if process.returncode == 0:
+        return True, stdout.decode("utf-8"), ""
+    
+    # Method 3: Fallback ke format alternatif
+    st.info("🔄 Method 2 gagal, mencoba method 3: Format alternatif...")
+    
+    if download_type == "Video":
+        # Coba format yang lebih umum
+        command = [
+            "yt-dlp", 
+            "-f", "best[height<=720]/best",  # Fallback ke 720p atau terbaik
+            "--user-agent", random.choice(user_agents),
+            "--no-check-certificate",
+            "-o", f"{output_path}.%(ext)s", 
+            link_url
+        ]
+    else:
+        command = [
+            "yt-dlp", 
+            "-f", "bestaudio/best",  # Fallback ke best jika bestaudio gagal
+            "--user-agent", random.choice(user_agents),
+            "--no-check-certificate", 
+            "-o", f"{output_path}.%(ext)s", 
+            link_url
+        ]
+    
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = process.communicate()
+    
+    if process.returncode == 0:
+        return True, stdout.decode("utf-8"), ""
+    
+    # Method 4: Last resort - paling basic
+    st.info("🔄 Method 3 gagal, mencoba method 4: Basic download...")
+    
+    command = [
+        "yt-dlp", 
+        "--user-agent", random.choice(user_agents),
+        "--no-check-certificate",
+        "-o", f"{output_path}.%(ext)s", 
+        link_url
+    ]
+    
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = process.communicate()
+    
+    return process.returncode == 0, stdout.decode("utf-8"), stderr.decode("utf-8")
 
 def show_user_dashboard():
     """
@@ -166,24 +293,22 @@ def show_user_dashboard():
                         sanitized_title = re.sub(r'[\\/:*?"<>|]', '', title).replace(' ', '_')
                         output_path = os.path.join(download_dir, sanitized_title)
                         
-                        if download_type == "Video":
-                            # Download video with selected format and best audio
-                            command = ["yt-dlp", "-f", f"{selected_format_id}+bestaudio", "-o", f"{output_path}.%(ext)s", link_url]
-                        else: # Audio
-                            # Download only the selected audio format
-                            command = ["yt-dlp", "-f", selected_format_id, "-o", f"{output_path}.%(ext)s", link_url]
-                        
-                        st.text(f"Perintah: {' '.join(command)}")
+                        # Gunakan fungsi download_with_fallback yang baru
+                        success, stdout, stderr = download_with_fallback(link_url, selected_format_id, output_path, download_type)
 
-                        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                        stdout, stderr = process.communicate()
-
-                        if process.returncode == 0:
-                            st.success(f"Berhasil mengunduh sebagai {download_type}!")
-                            st.text_area("Log Unduhan:", value=stdout.decode("utf-8"), height=200)
+                        if success:
+                            st.success(f"✅ Berhasil mengunduh sebagai {download_type}!")
+                            st.text_area("📋 Log Unduhan:", value=stdout, height=200)
                         else:
-                            st.error(f"Gagal mengunduh: {stderr.decode('utf-8')}")
-                            st.text_area("Log Unduhan:", value=stderr.decode("utf-8"), height=200)
+                            st.error(f"❌ Semua method download gagal!")
+                            st.text_area("📋 Error Log:", value=stderr, height=200)
+                            
+                            # Saran alternatif untuk user
+                            st.info("💡 **Saran alternatif:**")
+                            st.write("1. Coba lagi dalam beberapa menit")  
+                            st.write("2. Cek apakah link masih valid")
+                            st.write("3. Coba dengan link dari platform lain")
+                            st.write("4. Untuk YouTube, coba link video yang tidak age-restricted")
 
                     except Exception as e:
                         st.error(f"Gagal mengunggah atau mengunduh tautan: {e}")

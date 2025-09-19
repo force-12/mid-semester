@@ -5,4 +5,4 @@ pymysql
 psycopg2-binary
 st-pages
 streamlit-extras
-yt-dlp
+yt-dlp>=2023.10.13
