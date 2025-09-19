@@ -5,6 +5,7 @@ import re
 import os
 import random
 import time
+import mimetypes
 from db2 import create_media_post, read_media_posts_with_id, update_media_title, delete_media_post
 
 def download_with_fallback(link_url, selected_format_id, output_path, download_type):
@@ -131,6 +132,23 @@ def download_with_fallback(link_url, selected_format_id, output_path, download_t
     stdout, stderr = process.communicate()
     
     return process.returncode == 0, stdout.decode("utf-8"), stderr.decode("utf-8")
+
+def get_downloaded_file_path(output_path):
+    """
+    Mencari file yang berhasil diunduh berdasarkan output path
+    """
+    # Cari file dengan pattern output_path.*
+    directory = os.path.dirname(output_path)
+    filename_prefix = os.path.basename(output_path)
+    
+    if not os.path.exists(directory):
+        return None
+        
+    for file in os.listdir(directory):
+        if file.startswith(filename_prefix):
+            return os.path.join(directory, file)
+    
+    return None
 
 def show_user_dashboard():
     """
@@ -298,7 +316,38 @@ def show_user_dashboard():
 
                         if success:
                             st.success(f"✅ Berhasil mengunduh sebagai {download_type}!")
-                            st.text_area("📋 Log Unduhan:", value=stdout, height=200)
+                            
+                            # Cari file yang berhasil diunduh
+                            downloaded_file_path = get_downloaded_file_path(output_path)
+                            
+                            if downloaded_file_path and os.path.exists(downloaded_file_path):
+                                # Baca file sebagai bytes
+                                with open(downloaded_file_path, "rb") as file:
+                                    file_bytes = file.read()
+                                
+                                # Dapatkan nama file dan ekstensi
+                                filename = os.path.basename(downloaded_file_path)
+                                
+                                # Tentukan MIME type berdasarkan ekstensi
+                                mime_type, _ = mimetypes.guess_type(downloaded_file_path)
+                                if mime_type is None:
+                                    mime_type = "application/octet-stream"
+                                
+                                # Tampilkan tombol download
+                                st.download_button(
+                                    label="📥 Download File ke Perangkat Anda",
+                                    data=file_bytes,
+                                    file_name=filename,
+                                    mime=mime_type
+                                )
+                                
+                                # Hapus file dari server setelah berhasil ditampilkan
+                                try:
+                                    os.remove(downloaded_file_path)
+                                except:
+                                    pass
+                            else:
+                                st.error("File unduhan tidak ditemukan di server.")
                         else:
                             st.error(f"❌ Semua method download gagal!")
                             st.text_area("📋 Error Log:", value=stderr, height=200)
